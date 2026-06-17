@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -6,66 +7,67 @@
 <title>AGIRS – Notation Concours</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyC7HUJxPJO6OyzsK-gOIjJ1ySkblbfYEq8",
-    authDomain: "agirs-c2e72.firebaseapp.com",
-    projectId: "agirs-c2e72",
-    storageBucket: "agirs-c2e72.firebasestorage.app",
-    messagingSenderId: "378140701705",
-    appId: "1:378140701705:web:24562a6272871015c1b4d8"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyC7HUJxPJO6OyzsK-gOIjJ1ySkblbfYEq8",
+  authDomain: "agirs-c2e72.firebaseapp.com",
+  projectId: "agirs-c2e72",
+  storageBucket: "agirs-c2e72.firebasestorage.app",
+  messagingSenderId: "378140701705",
+  appId: "1:378140701705:web:24562a6272871015c1b4d8"
+};
 
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-  const TEAMS_DOC   = doc(db, 'agirs', 'teams');
-  const SCORES_DOC  = doc(db, 'agirs', 'scores');
-  const FILTERS_DOC = doc(db, 'agirs', 'filters');
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const TEAMS_DOC   = doc(db, 'agirs', 'teams');
+const SCORES_DOC  = doc(db, 'agirs', 'scores');
+const FILTERS_DOC = doc(db, 'agirs', 'filters');
 
-  window._fbSaveTeams = async (teams) => {
-    await setDoc(TEAMS_DOC, { data: JSON.stringify(teams) });
-  };
-  window._fbSaveScores = async (scores) => {
-    await setDoc(SCORES_DOC, { data: JSON.stringify(scores) });
-  };
-  window._fbSaveFilters = async (filters) => {
+window._fbSave = async function(teams, scores, filters) {
+  try {
+    await setDoc(TEAMS_DOC,   { data: JSON.stringify(teams) });
+    await setDoc(SCORES_DOC,  { data: JSON.stringify(scores) });
     await setDoc(FILTERS_DOC, { data: JSON.stringify(filters) });
-  };
+  } catch(e) { console.warn('Firebase save error', e); }
+};
 
-  onSnapshot(TEAMS_DOC, (snap) => {
-    if (!snap.exists()) return;
-    const newTeams = JSON.parse(snap.data().data || '[]');
-    if (JSON.stringify(newTeams) === JSON.stringify(window._teams)) return;
-    window._teams = newTeams;
-    if (typeof renderInscription === 'function') renderInscription();
-    if (typeof renderNotifPage === 'function' && document.getElementById('page-notation').classList.contains('active')) renderNotifPage();
-  });
-  onSnapshot(SCORES_DOC, (snap) => {
-    if (!snap.exists()) return;
-    const newScores = JSON.parse(snap.data().data || '{}');
-    if (JSON.stringify(newScores) === JSON.stringify(window._scores)) return;
-    window._scores = newScores;
-    if (typeof renderGymnastList === 'function' && document.getElementById('page-notation').classList.contains('active')) renderGymnastList();
-    if (typeof renderResults === 'function' && document.getElementById('page-resultats').classList.contains('active')) renderResults();
-    if (typeof renderAvancement === 'function' && document.getElementById('page-avancement').classList.contains('active')) renderAvancement();
-  });
-  onSnapshot(FILTERS_DOC, (snap) => {
-    if (!snap.exists()) return;
-    window._ageFilters = JSON.parse(snap.data().data || '[]');
-  });
+// Real-time sync
+onSnapshot(SCORES_DOC, (snap) => {
+  if (!snap.exists()) return;
+  const d = JSON.parse(snap.data().data || '{}');
+  if (JSON.stringify(d) === JSON.stringify(window._scores)) return;
+  window._scores = d;
+  try {
+    const active = document.querySelector('.page.active');
+    if (active && active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
+    if (active && active.id === 'page-resultats' && typeof renderResults === 'function') renderResults();
+    if (active && active.id === 'page-avancement' && typeof renderAvancement === 'function') renderAvancement();
+  } catch(e) {}
+});
 
-  Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC)]).then(([ts, ss, fs]) => {
-    if (ts.exists()) window._teams = JSON.parse(ts.data().data || '[]');
-    if (ss.exists()) window._scores = JSON.parse(ss.data().data || '{}');
-    if (fs.exists()) window._ageFilters = JSON.parse(fs.data().data || '[]');
-    window._fbReady = true;
-    if (typeof window._fbInitApp === 'function') window._fbInitApp();
-  }).catch(() => {
-    window._fbReady = true;
-    if (typeof window._fbInitApp === 'function') window._fbInitApp();
-  });
+onSnapshot(TEAMS_DOC, (snap) => {
+  if (!snap.exists()) return;
+  const d = JSON.parse(snap.data().data || '[]');
+  if (JSON.stringify(d) === JSON.stringify(window._teams)) return;
+  window._teams = d;
+  try { if (typeof renderInscription === 'function') renderInscription(); } catch(e) {}
+});
+
+// Load initial data then start app
+Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC)]).then(([ts, ss, fs]) => {
+  if (ts.exists() && ts.data().data) {
+    const d = JSON.parse(ts.data().data);
+    if (d.length) window._teams = d;
+  }
+  if (ss.exists() && ss.data().data) window._scores = JSON.parse(ss.data().data);
+  if (fs.exists() && fs.data().data) window._ageFilters = JSON.parse(fs.data().data);
+}).catch(e => console.warn('Firebase load error', e)).finally(() => {
+  document.getElementById('fb-loading').style.display = 'none';
+  window._fbReady = true;
+  if (typeof renderInscription === 'function') renderInscription();
+});
 </script>
 <style>
 :root {
@@ -134,18 +136,14 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);min-
 .disc-block{border-bottom:1px solid var(--border);padding:12px 16px}
 .disc-block:last-of-type{border-bottom:none}
 .disc-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
-.criteria-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.crit-label{flex:1;font-size:13px;font-weight:500;min-width:0}
-.score-col{display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0}
-.score-col-hdr{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;text-align:center}
+.criteria-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.crit-label{flex:1;font-size:13px;font-weight:500}
 .stepper{display:flex;align-items:center;background:var(--bg);border-radius:8px;overflow:hidden;border:1.5px solid var(--border)}
-.step-btn{width:30px;height:34px;border:none;background:transparent;font-size:18px;font-weight:700;color:var(--blue);cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.step-btn{width:36px;height:36px;border:none;background:transparent;font-size:20px;font-weight:700;color:var(--blue);cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
 .step-btn:active{background:var(--blue-pale)}
-.step-val{width:30px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px}
+.step-val{width:36px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px}
 .step-val.mx{color:var(--gold)}
 .step-val.em{color:var(--border)}
-.faute-select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:0 4px;font-size:13px;font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--red);height:34px;cursor:pointer;width:58px;text-align:center}
-.note-finale-box{width:44px;height:34px;display:flex;align-items:center;justify-content:center;background:var(--blue-pale);border:1.5px solid var(--blue);border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px;color:var(--blue)}
 .subtotal-row{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px;padding-top:8px;border-top:1px dashed var(--border)}
 .subtotal-lbl{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px}
 .subtotal-val{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px;color:var(--blue)}
@@ -235,14 +233,10 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
 </head>
 <body>
 
-<div id="loading-screen" style="position:fixed;inset:0;background:#1a4fa0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px">
+<div id="fb-loading" style="position:fixed;inset:0;background:#1a4fa0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px">
   <div style="width:60px;height:60px;background:#d42b2b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;color:#fff">GYM</div>
   <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:28px;letter-spacing:3px;color:#fff">AGIRS</div>
-  <div style="color:rgba(255,255,255,.7);font-size:13px;letter-spacing:1px">Connexion en cours...</div>
-  <div style="width:40px;height:4px;background:rgba(255,255,255,.2);border-radius:2px;overflow:hidden;margin-top:8px">
-    <div style="width:100%;height:100%;background:#f0a500;border-radius:2px;animation:load 1.2s ease-in-out infinite"></div>
-  </div>
-  <style>@keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}</style>
+  <div style="color:rgba(255,255,255,.7);font-size:13px;letter-spacing:1px">Synchronisation...</div>
 </div>
 <div class="header">
   <div class="header-top">
@@ -383,43 +377,27 @@ function getDisciplines(teamType) {
 // ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
-// State: use window._teams etc so Firebase module can share them
+// Firebase shared state via window
 window._teams = JSON.parse(localStorage.getItem('agirs_teams') || '[]');
 window._scores = JSON.parse(localStorage.getItem('agirs_scores') || '{}');
 window._ageFilters = JSON.parse(localStorage.getItem('agirs_age_filters') || '[]');
 window._fbReady = false;
 
-// Proxies so existing code (teams/scores/ageFilters) still works
-Object.defineProperty(window, 'teams', {
-  get() { return window._teams; },
-  set(v) { window._teams = v; },
-  configurable: true
-});
-Object.defineProperty(window, 'scores', {
-  get() { return window._scores; },
-  set(v) { window._scores = v; },
-  configurable: true
-});
-Object.defineProperty(window, 'ageFilters', {
-  get() { return window._ageFilters; },
-  set(v) { window._ageFilters = v; },
-  configurable: true
-});
+// Proxies so existing code works unchanged
+Object.defineProperty(window, 'teams',      { get(){ return window._teams; },      set(v){ window._teams = v; },      configurable:true });
+Object.defineProperty(window, 'scores',     { get(){ return window._scores; },     set(v){ window._scores = v; },     configurable:true });
+Object.defineProperty(window, 'ageFilters', { get(){ return window._ageFilters; }, set(v){ window._ageFilters = v; }, configurable:true });
 
 let activeNotifGroup = 'Tous';
 let activeGymnast = null;
 let showNewTeam = false;
 
 function save() {
-  // Always save to localStorage as backup
   localStorage.setItem('agirs_teams',  JSON.stringify(teams));
   localStorage.setItem('agirs_scores', JSON.stringify(scores));
   localStorage.setItem('agirs_age_filters', JSON.stringify(ageFilters));
-  // Save to Firebase if available
-  if (typeof window._fbSaveTeams === 'function') {
-    window._fbSaveTeams(teams);
-    window._fbSaveScores(scores);
-    window._fbSaveFilters(ageFilters);
+  if (typeof window._fbSave === 'function') {
+    window._fbSave(teams, scores, ageFilters);
   }
 }
 
@@ -437,28 +415,14 @@ function setScore(gid, key, val) {
   scores[gymKey(gid)][key] = val;
   save();
 }
-function getFaute(gid, key) {
-  const s = scores[gymKey(gid)];
-  return (s && s['f_'+key] !== undefined) ? s['f_'+key] : 0;
-}
-function setFaute(gid, key, val) {
-  if (!scores[gymKey(gid)]) scores[gymKey(gid)] = {};
-  scores[gymKey(gid)]['f_'+key] = val;
-  save();
-}
-function calcNoteFinale(gid, key) {
-  const nd = getScore(gid, key);
-  if (nd === null) return 0;
-  const f = getFaute(gid, key);
-  return Math.max(0, Math.round((nd - f) * 10) / 10);
-}
 function getTotal(gid, teamType, agres) {
   const discs = getDisciplines(teamType);
   const filtered = agres && SECTION_AGRES[agres]
     ? discs.filter(d => SECTION_AGRES[agres].includes(d.section))
     : discs;
   return filtered.reduce((s, d) => {
-    return s + calcNoteFinale(gid, d.key);
+    const v = getScore(gid, d.key);
+    return s + (v !== null ? v : 0);
   }, 0);
 }
 function isComplete(gid, teamType) {
@@ -716,29 +680,16 @@ function renderNotationForm(gid) {
       <div class="group-badge">${esc(g.teamName)} · ${g.annee||'?'}</div>
     </div>`;
 
-  // Header des colonnes
-  html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 16px 2px;border-bottom:1px solid var(--border);background:var(--bg)">
-    <div style="flex:1"></div>
-    <div class="score-col-hdr" style="width:96px;text-align:center">Note départ</div>
-    <div class="score-col-hdr" style="width:58px;text-align:center">Fautes</div>
-    <div class="score-col-hdr" style="width:44px;text-align:center">Note</div>
-  </div>`;
-
   for (const [sec, items] of Object.entries(sections)) {
-    const secTotal = items.reduce((s,d) => s+calcNoteFinale(gid,d.key), 0);
+    const secTotal = items.reduce((s,d) => s+(getScore(gid,d.key)||0), 0);
     const secMax = items.reduce((s,d) => s+d.max, 0);
     const icon = sectionIcons[sec]||'';
     html += `<div class="disc-block">
       <div class="disc-title">${icon} ${sec}</div>
       ${items.map(d => {
         const val = getScore(gid, d.key);
-        const faute = getFaute(gid, d.key);
-        const noteFinale = calcNoteFinale(gid, d.key);
         const display = val === null ? '–' : val;
         const cls = val === d.max ? 'mx' : val === null ? 'em' : '';
-        const fauteOptions = [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1].map(v =>
-          `<option value="${v}" ${faute===v?'selected':''}>${v}</option>`
-        ).join('');
         return `<div class="criteria-row">
           <div class="crit-label">${d.label}</div>
           <div class="stepper">
@@ -746,31 +697,23 @@ function renderNotationForm(gid) {
             <div class="step-val ${cls}" id="sv_${gid}_${d.key}">${display}</div>
             <button class="step-btn" onclick="chScore('${gid}','${d.key}',+1)">+</button>
           </div>
-          <select class="faute-select" id="fa_${gid}_${d.key}" onchange="chFaute('${gid}','${d.key}',this.value)">${fauteOptions}</select>
-          <div class="note-finale-box" id="nf_${gid}_${d.key}">${noteFinale % 1 === 0 ? noteFinale : noteFinale.toFixed(1)}</div>
         </div>`;
       }).join('')}
       <div class="subtotal-row">
         <div class="subtotal-lbl">Sous-total</div>
-        <div class="subtotal-val" id="st_${gid}_${sec.replace(/\W/g,'_')}">${secTotal % 1 === 0 ? secTotal : secTotal.toFixed(1)} / ${secMax}</div>
+        <div class="subtotal-val" id="st_${gid}_${sec.replace(/\W/g,'_')}">${secTotal} / ${secMax}</div>
       </div>
     </div>`;
   }
 
-  const totalInit = getTotal(gid, g.teamType);
   html += `<div class="grand-bar">
     <div class="grand-lbl">Total général</div>
-    <div class="grand-val" id="gt_${gid}">${totalInit % 1 === 0 ? totalInit : totalInit.toFixed(1)}</div>
+    <div class="grand-val" id="gt_${gid}">${getTotal(gid, g.teamType)}</div>
   </div>
   <button class="save-btn" onclick="saveGymnast('${gid}')">✔ Enregistrer</button>
   </div>`;
 
   document.getElementById('notation-form-area').innerHTML = html;
-}
-
-function chFaute(gid, key, val) {
-  setFaute(gid, key, parseFloat(val)||0);
-  updateScoreDisplay(gid, key);
 }
 
 function chScore(gid, key, delta) {
@@ -781,41 +724,27 @@ function chScore(gid, key, delta) {
   if (cur === null) cur = 0; else cur = parseInt(cur)||0;
   const nv = Math.max(0, Math.min(d.max, cur + delta));
   setScore(gid, key, nv);
-  updateScoreDisplay(gid, key);
-}
 
-function updateScoreDisplay(gid, key) {
-  const g = allGymnasts().find(x => x.id === gid);
-  if (!g) return;
-  const d = getDisciplines(g.teamType).find(x => x.key === key);
-  const val = getScore(gid, key);
-  const nf = calcNoteFinale(gid, key);
-
-  // note départ
+  // update cell
   const el = document.getElementById(`sv_${gid}_${key}`);
   if (el) {
-    el.textContent = val === null ? '–' : val;
-    el.className = 'step-val' + (val === d.max ? ' mx' : val === null ? ' em' : '');
+    el.textContent = nv;
+    el.className = 'step-val' + (nv === d.max ? ' mx' : '');
   }
-  // note finale
-  const nfEl = document.getElementById(`nf_${gid}_${key}`);
-  if (nfEl) nfEl.textContent = nf % 1 === 0 ? nf : nf.toFixed(1);
-
-  // sous-totaux par section
+  // update section subtotal
   const discs = getDisciplines(g.teamType);
   const sections = {};
   for (const dd of discs) { if(!sections[dd.section]) sections[dd.section]=[]; sections[dd.section].push(dd); }
   for (const [sec, items] of Object.entries(sections)) {
     if (items.some(x => x.key === key)) {
-      const secTotal = items.reduce((s,dd) => s+calcNoteFinale(gid,dd.key), 0);
+      const secTotal = items.reduce((s,dd) => s+(getScore(gid,dd.key)||0), 0);
       const secMax = items.reduce((s,dd) => s+dd.max, 0);
       const stEl = document.getElementById(`st_${gid}_${sec.replace(/\W/g,'_')}`);
-      if (stEl) stEl.textContent = `${secTotal % 1 === 0 ? secTotal : secTotal.toFixed(1)} / ${secMax}`;
+      if (stEl) stEl.textContent = `${secTotal} / ${secMax}`;
     }
   }
-  const total = getTotal(gid, g.teamType);
   const gtEl = document.getElementById(`gt_${gid}`);
-  if (gtEl) gtEl.textContent = total % 1 === 0 ? total : total.toFixed(1);
+  if (gtEl) gtEl.textContent = getTotal(gid, g.teamType);
 }
 
 function saveGymnast(gid) {
@@ -1174,33 +1103,12 @@ const DEFAULT_TEAMS = [
   if (changed) { scores = newScores; localStorage.setItem('agirs_scores', JSON.stringify(scores)); }
 })();
 
-// Called once Firebase has loaded (or failed)
-window._fbInitApp = function() {
-  // Migration des scores
-  (function migrateScores() {
-    let changed = false;
-    const newScores = {};
-    for (const [k, v] of Object.entries(scores)) {
-      if (k.startsWith('g_g_')) { newScores[k.slice(2)] = v; changed = true; }
-      else newScores[k] = v;
-    }
-    if (changed) { window._scores = newScores; save(); }
-  })();
-
-  // Charger équipes par défaut si vide
-  if (!teams.length) {
-    window._teams = DEFAULT_TEAMS;
-    save();
-  }
-  renderInscription();
-  document.getElementById('loading-screen').style.display = 'none';
-  document.querySelector('.header').style.display = '';
-  document.getElementById('page-inscription').style.display = 'block';
-};
-
-// Show loading screen while Firebase connects
-document.querySelector('.header').style.display = 'none';
-document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+// Charger les équipes par défaut si localStorage vide
+if (!teams.length) {
+  teams = DEFAULT_TEAMS;
+  save();
+}
+renderInscription();
 </script>
 </body>
 </html>
