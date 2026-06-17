@@ -5,6 +5,68 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AGIRS – Notation Concours</title>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyC7HUJxPJO6OyzsK-gOIjJ1ySkblbfYEq8",
+    authDomain: "agirs-c2e72.firebaseapp.com",
+    projectId: "agirs-c2e72",
+    storageBucket: "agirs-c2e72.firebasestorage.app",
+    messagingSenderId: "378140701705",
+    appId: "1:378140701705:web:24562a6272871015c1b4d8"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const TEAMS_DOC   = doc(db, 'agirs', 'teams');
+  const SCORES_DOC  = doc(db, 'agirs', 'scores');
+  const FILTERS_DOC = doc(db, 'agirs', 'filters');
+
+  window._fbSaveTeams = async (teams) => {
+    await setDoc(TEAMS_DOC, { data: JSON.stringify(teams) });
+  };
+  window._fbSaveScores = async (scores) => {
+    await setDoc(SCORES_DOC, { data: JSON.stringify(scores) });
+  };
+  window._fbSaveFilters = async (filters) => {
+    await setDoc(FILTERS_DOC, { data: JSON.stringify(filters) });
+  };
+
+  onSnapshot(TEAMS_DOC, (snap) => {
+    if (!snap.exists()) return;
+    const newTeams = JSON.parse(snap.data().data || '[]');
+    if (JSON.stringify(newTeams) === JSON.stringify(window._teams)) return;
+    window._teams = newTeams;
+    if (typeof renderInscription === 'function') renderInscription();
+    if (typeof renderNotifPage === 'function' && document.getElementById('page-notation').classList.contains('active')) renderNotifPage();
+  });
+  onSnapshot(SCORES_DOC, (snap) => {
+    if (!snap.exists()) return;
+    const newScores = JSON.parse(snap.data().data || '{}');
+    if (JSON.stringify(newScores) === JSON.stringify(window._scores)) return;
+    window._scores = newScores;
+    if (typeof renderGymnastList === 'function' && document.getElementById('page-notation').classList.contains('active')) renderGymnastList();
+    if (typeof renderResults === 'function' && document.getElementById('page-resultats').classList.contains('active')) renderResults();
+    if (typeof renderAvancement === 'function' && document.getElementById('page-avancement').classList.contains('active')) renderAvancement();
+  });
+  onSnapshot(FILTERS_DOC, (snap) => {
+    if (!snap.exists()) return;
+    window._ageFilters = JSON.parse(snap.data().data || '[]');
+  });
+
+  Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC)]).then(([ts, ss, fs]) => {
+    if (ts.exists()) window._teams = JSON.parse(ts.data().data || '[]');
+    if (ss.exists()) window._scores = JSON.parse(ss.data().data || '{}');
+    if (fs.exists()) window._ageFilters = JSON.parse(fs.data().data || '[]');
+    window._fbReady = true;
+    if (typeof window._fbInitApp === 'function') window._fbInitApp();
+  }).catch(() => {
+    window._fbReady = true;
+    if (typeof window._fbInitApp === 'function') window._fbInitApp();
+  });
+</script>
 <style>
 :root {
   --blue:#1a4fa0;--blue-light:#2563c0;--blue-pale:#e8f0fb;
@@ -173,6 +235,15 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
 </head>
 <body>
 
+<div id="loading-screen" style="position:fixed;inset:0;background:#1a4fa0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px">
+  <div style="width:60px;height:60px;background:#d42b2b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:22px;color:#fff">GYM</div>
+  <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:28px;letter-spacing:3px;color:#fff">AGIRS</div>
+  <div style="color:rgba(255,255,255,.7);font-size:13px;letter-spacing:1px">Connexion en cours...</div>
+  <div style="width:40px;height:4px;background:rgba(255,255,255,.2);border-radius:2px;overflow:hidden;margin-top:8px">
+    <div style="width:100%;height:100%;background:#f0a500;border-radius:2px;animation:load 1.2s ease-in-out infinite"></div>
+  </div>
+  <style>@keyframes load{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}</style>
+</div>
 <div class="header">
   <div class="header-top">
     <div class="logo-area">
@@ -312,18 +383,44 @@ function getDisciplines(teamType) {
 // ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
-let teams  = JSON.parse(localStorage.getItem('agirs_teams')  || '[]');
-let scores = JSON.parse(localStorage.getItem('agirs_scores') || '{}');
-let ageFilters = JSON.parse(localStorage.getItem('agirs_age_filters') || '[]');
+// State: use window._teams etc so Firebase module can share them
+window._teams = JSON.parse(localStorage.getItem('agirs_teams') || '[]');
+window._scores = JSON.parse(localStorage.getItem('agirs_scores') || '{}');
+window._ageFilters = JSON.parse(localStorage.getItem('agirs_age_filters') || '[]');
+window._fbReady = false;
+
+// Proxies so existing code (teams/scores/ageFilters) still works
+Object.defineProperty(window, 'teams', {
+  get() { return window._teams; },
+  set(v) { window._teams = v; },
+  configurable: true
+});
+Object.defineProperty(window, 'scores', {
+  get() { return window._scores; },
+  set(v) { window._scores = v; },
+  configurable: true
+});
+Object.defineProperty(window, 'ageFilters', {
+  get() { return window._ageFilters; },
+  set(v) { window._ageFilters = v; },
+  configurable: true
+});
 
 let activeNotifGroup = 'Tous';
 let activeGymnast = null;
 let showNewTeam = false;
 
 function save() {
+  // Always save to localStorage as backup
   localStorage.setItem('agirs_teams',  JSON.stringify(teams));
   localStorage.setItem('agirs_scores', JSON.stringify(scores));
   localStorage.setItem('agirs_age_filters', JSON.stringify(ageFilters));
+  // Save to Firebase if available
+  if (typeof window._fbSaveTeams === 'function') {
+    window._fbSaveTeams(teams);
+    window._fbSaveScores(scores);
+    window._fbSaveFilters(ageFilters);
+  }
 }
 
 // helpers
@@ -1077,12 +1174,33 @@ const DEFAULT_TEAMS = [
   if (changed) { scores = newScores; localStorage.setItem('agirs_scores', JSON.stringify(scores)); }
 })();
 
-// Charger les équipes par défaut si localStorage vide
-if (!teams.length) {
-  teams = DEFAULT_TEAMS;
-  save();
-}
-renderInscription();
+// Called once Firebase has loaded (or failed)
+window._fbInitApp = function() {
+  // Migration des scores
+  (function migrateScores() {
+    let changed = false;
+    const newScores = {};
+    for (const [k, v] of Object.entries(scores)) {
+      if (k.startsWith('g_g_')) { newScores[k.slice(2)] = v; changed = true; }
+      else newScores[k] = v;
+    }
+    if (changed) { window._scores = newScores; save(); }
+  })();
+
+  // Charger équipes par défaut si vide
+  if (!teams.length) {
+    window._teams = DEFAULT_TEAMS;
+    save();
+  }
+  renderInscription();
+  document.getElementById('loading-screen').style.display = 'none';
+  document.querySelector('.header').style.display = '';
+  document.getElementById('page-inscription').style.display = 'block';
+};
+
+// Show loading screen while Firebase connects
+document.querySelector('.header').style.display = 'none';
+document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
 </script>
 </body>
 </html>
