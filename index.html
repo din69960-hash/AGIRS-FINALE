@@ -24,8 +24,11 @@ const db = getFirestore(app);
 const TEAMS_DOC   = doc(db, 'agirs', 'teams');
 const SCORES_DOC  = doc(db, 'agirs', 'scores');
 const FILTERS_DOC = doc(db, 'agirs', 'filters');
+const ADMIN_DOC    = doc(db, 'agirs', 'admin');
+const ATELIERS_DOC = doc(db, 'agirs', 'ateliers');
 
 window._fbSave = async function(teams, scores, filters) {
+  if (window._siteLocked && !window._isAdmin) return;
   try {
     await setDoc(TEAMS_DOC,   { data: JSON.stringify(teams) });
     await setDoc(SCORES_DOC,  { data: JSON.stringify(scores) });
@@ -33,7 +36,36 @@ window._fbSave = async function(teams, scores, filters) {
   } catch(e) { console.warn('Firebase save error', e); }
 };
 
-// Real-time sync
+window._fbSaveAdmin = async function(locked) {
+  try { await setDoc(ADMIN_DOC, { locked }); } catch(e) { console.warn('Firebase admin save error', e); }
+};
+
+window._fbSaveAteliers = async function(ateliers) {
+  try { await setDoc(ATELIERS_DOC, { data: JSON.stringify(ateliers) }); } catch(e) { console.warn('Firebase ateliers save error', e); }
+};
+
+// Real-time sync ateliers
+onSnapshot(ATELIERS_DOC, (snap) => {
+  if (!snap.exists()) return;
+  const d = JSON.parse(snap.data().data || '[]');
+  if (JSON.stringify(d) === JSON.stringify(window._ateliers)) return;
+  window._ateliers = d;
+  try {
+    const active = document.querySelector('.page.active');
+    if (active && active.id === 'page-notation' && typeof renderNotifPage === 'function') renderNotifPage();
+    if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
+  } catch(e) {}
+});
+
+// Real-time sync admin
+onSnapshot(ADMIN_DOC, (snap) => {
+  if (!snap.exists()) return;
+  window._siteLocked = snap.data().locked || false;
+  if (typeof updateLockBanner === 'function') updateLockBanner();
+  if (typeof renderAdmin === 'function' && window._isAdmin) renderAdmin();
+});
+
+// Real-time sync scores
 onSnapshot(SCORES_DOC, (snap) => {
   if (!snap.exists()) return;
   const d = JSON.parse(snap.data().data || '{}');
@@ -45,10 +77,10 @@ onSnapshot(SCORES_DOC, (snap) => {
     if (active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
     if (active.id === 'page-resultats' && typeof renderResults === 'function') renderResults();
     if (active.id === 'page-avancement' && typeof renderAvancement === 'function') renderAvancement();
-    // Ne jamais toucher à la page inscription depuis ici
   } catch(e) {}
 });
 
+// Real-time sync teams
 onSnapshot(TEAMS_DOC, (snap) => {
   if (!snap.exists()) return;
   const d = JSON.parse(snap.data().data || '[]');
@@ -56,28 +88,28 @@ onSnapshot(TEAMS_DOC, (snap) => {
   window._teams = d;
   try {
     const active = document.querySelector('.page.active');
-    // Ne re-render que si on est déjà sur la page inscription ET qu'on ne saisit rien
     if (active && active.id === 'page-inscription' && typeof renderInscription === 'function') {
-      // Vérifier qu'aucun champ n'est en cours de saisie
       if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
       renderInscription();
     }
-    // Si on est sur notation, rafraîchir la liste des gymnastes (noms/équipes)
     if (active && active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
   } catch(e) {}
 });
 
 // Load initial data then start app
-Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC)]).then(([ts, ss, fs]) => {
+Promise.all([getDoc(TEAMS_DOC), getDoc(SCORES_DOC), getDoc(FILTERS_DOC), getDoc(ADMIN_DOC), getDoc(ATELIERS_DOC)]).then(([ts, ss, fs, as, atS]) => {
   if (ts.exists() && ts.data().data) {
     const d = JSON.parse(ts.data().data);
     if (d.length) window._teams = d;
   }
   if (ss.exists() && ss.data().data) window._scores = JSON.parse(ss.data().data);
   if (fs.exists() && fs.data().data) window._ageFilters = JSON.parse(fs.data().data);
+  if (as.exists()) window._siteLocked = as.data().locked || false;
+  if (atS.exists() && atS.data().data) window._ateliers = JSON.parse(atS.data().data);
 }).catch(e => console.warn('Firebase load error', e)).finally(() => {
   document.getElementById('fb-loading').style.display = 'none';
   window._fbReady = true;
+  if (typeof updateLockBanner === 'function') updateLockBanner();
   if (typeof renderInscription === 'function') renderInscription();
 });
 </script>
@@ -148,15 +180,17 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);min-
 .disc-block{border-bottom:1px solid var(--border);padding:12px 16px}
 .disc-block:last-of-type{border-bottom:none}
 .disc-title{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
-.criteria-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.crit-label{flex:1;font-size:13px;font-weight:500}
-.stepper{display:flex;align-items:center;background:var(--bg);border-radius:8px;overflow:hidden;border:1.5px solid var(--border)}
-.step-btn{width:36px;height:36px;border:none;background:transparent;font-size:20px;font-weight:700;color:var(--blue);cursor:pointer;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
-.step-btn:active{background:var(--blue-pale)}
-.step-val{width:36px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px}
-.step-val.mx{color:var(--gold)}
-.step-val.em{color:var(--border)}
-.subtotal-row{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px;padding-top:8px;border-top:1px dashed var(--border)}
+.criteria-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.criteria-row:last-of-type{border-bottom:none}
+.crit-label{flex:1;font-size:13px;font-weight:500;min-width:0}
+.crit-cols{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.crit-col{display:flex;flex-direction:column;align-items:center;gap:2px}
+.crit-col-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap}
+.crit-select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;color:var(--blue);text-align-last:center;cursor:pointer;width:58px;-webkit-appearance:none;appearance:none}
+.crit-select:focus{outline:none;border-color:var(--blue)}
+.crit-total{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px;color:var(--success);width:58px;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;line-height:1.3}
+.crit-total.empty{color:var(--border)}
+.subtotal-row{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:2px solid var(--border)}
 .subtotal-lbl{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1px}
 .subtotal-val{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px;color:var(--blue)}
 .grand-bar{background:var(--blue);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center}
@@ -241,16 +275,29 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);min-
 .export-btn{background:var(--blue);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer}
 .notif-wrap{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-top:14px}
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
-
+/* DRAG & DROP */
+.drag-handle{width:30px;display:flex;align-items:center;justify-content:center;cursor:grab;color:rgba(255,255,255,.5);font-size:20px;flex-shrink:0;touch-action:none;user-select:none}
+.drag-handle:active{cursor:grabbing;color:#fff}
+.team-card.dragging{opacity:.35;border:2px dashed var(--gold)}
+.team-card.drag-over{border-top:3px solid var(--gold)}
 /* INLINE SCORE COLUMNS */
-.gymnast-item{align-items:flex-start}
-.gym-inline-cols{display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:6px}
-.inline-col{display:flex;flex-direction:column;align-items:center;gap:3px}
+.gym-inline-cols{display:flex;gap:5px;align-items:center;flex-shrink:0;margin-left:4px}
+.inline-col{display:flex;flex-direction:column;align-items:center;gap:2px}
 .inline-col-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap}
-.inline-col select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 4px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;color:var(--blue);text-align:center;cursor:pointer;width:56px;-webkit-appearance:none;appearance:none;text-align-last:center}
+.inline-col select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15px;color:var(--blue);text-align-last:center;cursor:pointer;width:54px;-webkit-appearance:none;appearance:none}
 .inline-col select:focus{outline:none;border-color:var(--blue)}
-.inline-col-result{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px;color:var(--success);width:56px;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 4px;line-height:1.3}
+.inline-col-result{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:19px;color:var(--success);width:54px;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 2px;line-height:1.3}
 .inline-col-result.empty{color:var(--border)}
+/* ADMIN */
+.admin-card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
+.admin-title{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:18px;color:var(--blue);text-transform:uppercase;letter-spacing:2px;margin-bottom:6px}
+.admin-desc{font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.5}
+.admin-status{display:inline-flex;align-items:center;gap:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;padding:6px 14px;border-radius:20px;margin-bottom:14px}
+.admin-status.locked{background:#fde8e8;color:var(--red)}
+.admin-status.unlocked{background:#e8f6ee;color:var(--success)}
+.login-input{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 14px;font-size:15px;font-family:'Barlow',sans-serif;color:var(--text);margin-bottom:12px}
+.login-input:focus{outline:none;border-color:var(--blue)}
+
 </style>
 </head>
 <body>
@@ -276,7 +323,19 @@ input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
     <div class="nav-tab" onclick="showPage('notation')">📋 Notation</div>
     <div class="nav-tab" onclick="showPage('resultats')">🏆 Résultats</div>
     <div class="nav-tab" onclick="showPage('avancement')">📊 Avancement</div>
+    <div class="nav-tab" onclick="showPage('admin')" style="margin-left:auto;color:var(--gold)">🔐 Admin</div>
   </div>
+</div>
+
+<!-- ══ BANDEAU VERROU ══ -->
+<div id="lock-banner" style="display:none;background:#d42b2b;color:#fff;text-align:center;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:1px;position:sticky;top:0;z-index:150">
+  🔒 SITE VERROUILLÉ – Saisie désactivée par l'administrateur
+</div>
+
+<!-- ══ ADMIN ══ -->
+<div class="page" id="page-admin">
+  <div id="admin-login-area"></div>
+  <div id="admin-panel-area" style="display:none"></div>
 </div>
 
 <!-- ══ INSCRIPTION ══ -->
@@ -393,6 +452,15 @@ const SECTION_AGRES = {
 };
 
 function getDisciplines(teamType) {
+  // If custom ateliers are defined, use them
+  if (window._ateliers && window._ateliers.length > 0) {
+    // Group ateliers by agres as disciplines
+    const seen = {};
+    return window._ateliers.map(a => {
+      const key = 'at_' + a.id;
+      return { key, label: a.label, section: a.agres, max: 10 };
+    });
+  }
   return (teamType||'').toLowerCase().includes('gam') ? DISC_GAM : DISC_GAF;
 }
 
@@ -413,8 +481,202 @@ Object.defineProperty(window, 'ageFilters', { get(){ return window._ageFilters; 
 let activeNotifGroup = 'Tous';
 let activeGymnast = null;
 let showNewTeam = false;
+window._siteLocked = false;
+window._isAdmin = false;
+window._ateliers = []; // [{id, agres, label}]
+const ADMIN_PASSWORD = '#Caramel2020*';
+
+function updateLockBanner() {
+  const b = document.getElementById('lock-banner');
+  if (b) b.style.display = (window._siteLocked && !window._isAdmin) ? 'block' : 'none';
+}
+
+function renderAdminLogin() {
+  document.getElementById('admin-login-area').innerHTML = `
+    <div class="section-title">Administration</div>
+    <div class="section-sub">Accès réservé à l'administrateur</div>
+    <div class="admin-card">
+      <div class="admin-title">🔐 Connexion</div>
+      <div class="admin-desc">Saisissez le mot de passe administrateur.</div>
+      <input class="login-input" type="password" id="admin-pwd-input" placeholder="Mot de passe" onkeydown="if(event.key==='Enter')checkAdminPwd()">
+      <button class="btn-sm btn-blue" style="width:100%;padding:12px" onclick="checkAdminPwd()">Connexion</button>
+      <div id="admin-pwd-error" style="color:var(--red);font-size:13px;margin-top:8px;display:none">❌ Mot de passe incorrect</div>
+    </div>`;
+  document.getElementById('admin-panel-area').style.display = 'none';
+  document.getElementById('admin-login-area').style.display = 'block';
+}
+
+function checkAdminPwd() {
+  const pwd = document.getElementById('admin-pwd-input').value;
+  if (pwd === ADMIN_PASSWORD) {
+    window._isAdmin = true;
+    updateLockBanner();
+    document.getElementById('admin-login-area').style.display = 'none';
+    document.getElementById('admin-panel-area').style.display = 'block';
+    renderAdmin();
+  } else {
+    document.getElementById('admin-pwd-error').style.display = 'block';
+  }
+}
+
+function renderAdmin() {
+  if (!window._isAdmin) return;
+  const locked = window._siteLocked;
+  document.getElementById('admin-panel-area').innerHTML = `
+    <div class="section-title">Administration</div>
+    <div class="section-sub">Connecté en tant qu'administrateur</div>
+    <div class="admin-card">
+      <div class="admin-title">🔒 Verrouillage du site</div>
+      <div class="admin-desc">Quand verrouillé, les autres voient un avertissement et ne peuvent plus modifier les saisies.</div>
+      <div class="admin-status ${locked ? 'locked' : 'unlocked'}">${locked ? '🔒 Site VERROUILLÉ' : '🔓 Site DÉVERROUILLÉ'}</div><br>
+      ${locked
+        ? `<button class="btn-sm btn-green" style="width:100%;padding:12px" onclick="setSiteLock(false)">🔓 Déverrouiller le site</button>`
+        : `<button class="btn-sm btn-red" style="width:100%;padding:12px" onclick="setSiteLock(true)">🔒 Verrouiller le site</button>`}
+    </div>
+    <div class="admin-card">
+      <div class="admin-title">🗑 Remise des résultats à zéro</div>
+      <div class="admin-desc">Efface définitivement toutes les notes. Les équipes et gymnastes sont conservés.</div>
+      <button class="btn-sm btn-red" style="width:100%;padding:12px" onclick="adminResetScores()">⚠ Remettre les résultats à zéro</button>
+    </div>
+    <div class="admin-card">
+      <div class="admin-title">🏋️ Gestion des ateliers</div>
+      <div class="admin-desc">Définissez les agrès et ateliers qui apparaîtront dans la notation de chaque gymnaste.</div>
+      <button class="btn-sm btn-blue" style="width:100%;padding:12px" onclick="showAteliersPage()">⚙️ Gérer les ateliers</button>
+    </div>
+    <div class="admin-card">
+      <button class="btn-sm btn-outline" style="width:100%;padding:10px" onclick="adminLogout()">Se déconnecter</button>
+    </div>`;
+}
+
+
+// ══════════════════════════════════════════════════
+// GESTION ATELIERS
+// ══════════════════════════════════════════════════
+const AGRES_LIST = ['Sol','Poutre','Saut','Barres','Anneaux','Arçons','Fixe','Parallèles','Autre'];
+const AGRES_ICONS = {Sol:'🤸',Poutre:'⚖️',Saut:'🦘',Barres:'🔵',Anneaux:'⭕',Arçons:'🎠',Fixe:'🔧',Parallèles:'📏',Autre:'⭐'};
+
+function showAteliersPage() {
+  // Switch to admin page sub-view
+  document.getElementById('admin-panel-area').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <button class="btn-sm btn-outline" onclick="renderAdmin()">← Retour Admin</button>
+      <div class="section-title" style="margin-bottom:0">Gestion des ateliers</div>
+    </div>
+    <div class="section-sub">Définissez les agrès et leurs ateliers. Ces ateliers remplacent les critères par défaut dans la notation.</div>
+
+    <div class="admin-card" style="padding:12px">
+      <div class="param-title">➕ Ajouter un atelier</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <select class="param-select" id="new-agres-sel" style="flex:1;min-width:120px">
+          ${AGRES_LIST.map(a=>`<option value="${a}">${a}</option>`).join('')}
+        </select>
+        <input id="new-atelier-label" class="add-age-inp" placeholder="Nom de l'atelier" style="flex:2;min-width:160px;width:auto">
+        <button class="btn-sm btn-blue" style="padding:8px 16px" onclick="addAtelier()">Ajouter</button>
+      </div>
+    </div>
+
+    <div id="ateliers-list-area"></div>
+
+    <div class="admin-card" style="border-color:var(--red)">
+      <div class="admin-desc" style="margin-bottom:10px">⚠️ Supprimer TOUS les ateliers remet les critères par défaut (Rotation avant, Suspension...)</div>
+      <button class="btn-sm btn-red" style="width:100%;padding:10px" onclick="clearAllAteliers()">🗑 Supprimer tous les ateliers</button>
+    </div>`;
+  renderAteliersList();
+}
+
+function renderAteliersList() {
+  const area = document.getElementById('ateliers-list-area');
+  if (!area) return;
+  if (!window._ateliers.length) {
+    area.innerHTML = '<div class="empty-state" style="padding:20px">Aucun atelier défini.<br>Utilisez le formulaire ci-dessus pour en ajouter.</div>';
+    return;
+  }
+  // Group by agres
+  const byAgres = {};
+  for (const a of window._ateliers) {
+    if (!byAgres[a.agres]) byAgres[a.agres] = [];
+    byAgres[a.agres].push(a);
+  }
+  area.innerHTML = Object.entries(byAgres).map(([agres, items]) => `
+    <div class="admin-card" style="padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">${AGRES_ICONS[agres]||'⭐'}</span>
+        <div class="param-title" style="margin-bottom:0">${agres}</div>
+        <span style="font-size:12px;color:var(--text2);margin-left:4px">${items.length} atelier(s)</span>
+      </div>
+      ${items.map((a,i) => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;color:var(--text2);min-width:20px">${i+1}.</span>
+          <input style="flex:1;border:none;background:transparent;font-family:'Barlow',sans-serif;font-size:13px;color:var(--text)" 
+            value="${esc(a.label)}" 
+            onchange="renameAtelier('${a.id}',this.value)">
+          <button class="del-btn" onclick="deleteAtelier('${a.id}')">×</button>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+function addAtelier() {
+  const agres = document.getElementById('new-agres-sel').value;
+  const label = document.getElementById('new-atelier-label').value.trim();
+  if (!label) { toast("Saisissez un nom d'atelier", true); return; }
+  const newAt = { id: uid(), agres, label };
+  window._ateliers.push(newAt);
+  saveAteliers();
+  document.getElementById('new-atelier-label').value = '';
+  renderAteliersList();
+  toast('✓ Atelier ajouté');
+}
+
+function deleteAtelier(aid) {
+  window._ateliers = window._ateliers.filter(a => a.id !== aid);
+  saveAteliers();
+  renderAteliersList();
+  toast('Atelier supprimé');
+}
+
+function renameAtelier(aid, val) {
+  const a = window._ateliers.find(x => x.id === aid);
+  if (a) { a.label = val; saveAteliers(); }
+}
+
+function clearAllAteliers() {
+  if (!confirm('Supprimer TOUS les ateliers et revenir aux critères par défaut ?')) return;
+  window._ateliers = [];
+  saveAteliers();
+  renderAteliersList();
+  toast('✓ Ateliers supprimés');
+}
+
+function saveAteliers() {
+  if (typeof window._fbSaveAteliers === 'function') window._fbSaveAteliers(window._ateliers);
+}
+
+function setSiteLock(locked) {
+  window._siteLocked = locked;
+  if (typeof window._fbSaveAdmin === 'function') window._fbSaveAdmin(locked);
+  updateLockBanner();
+  renderAdmin();
+  toast(locked ? '🔒 Site verrouillé' : '🔓 Site déverrouillé');
+}
+
+function adminResetScores() {
+  if (!confirm('Confirmer vous la suppression définitive de tous les résultats ?\n\nCette action est irréversible.')) return;
+  scores = {};
+  save();
+  activeGymnast = null;
+  document.getElementById('notation-form-area').innerHTML = '';
+  renderAdmin();
+  toast('✓ Résultats remis à zéro');
+}
+
+function adminLogout() {
+  window._isAdmin = false;
+  updateLockBanner();
+  renderAdminLogin();
+}
 
 function save() {
+  if (window._siteLocked && !window._isAdmin) { toast('🔒 Site verrouillé – saisie impossible', true); return; }
   localStorage.setItem('agirs_teams',  JSON.stringify(teams));
   localStorage.setItem('agirs_scores', JSON.stringify(scores));
   localStorage.setItem('agirs_age_filters', JSON.stringify(ageFilters));
@@ -448,10 +710,10 @@ function getTotal(gid, teamType, agres) {
   }, 0);
 }
 function isComplete(gid, teamType) {
-  return getDisciplines(teamType).every(d => getScore(gid, d.key) !== null);
+  return getDisciplines(teamType).every(d => getScore(gid, d.key+'_note') !== null);
 }
 function filledCount(gid, teamType) {
-  return getDisciplines(teamType).filter(d => getScore(gid, d.key) !== null).length;
+  return getDisciplines(teamType).filter(d => getScore(gid, d.key+'_note') !== null).length;
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
@@ -463,11 +725,12 @@ function showPage(p) {
   document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   const tabs = document.querySelectorAll('.nav-tab');
-  const map = {inscription:0, notation:1, resultats:2, avancement:3};
+  const map = {inscription:0, notation:1, resultats:2, avancement:3, admin:4};
   if (tabs[map[p]]) tabs[map[p]].classList.add('active');
   if (p === 'notation')   renderNotifPage();
   if (p === 'resultats')  renderResults();
   if (p === 'avancement') renderAvancement();
+  if (p === 'admin') { if (window._isAdmin) { document.getElementById('admin-login-area').style.display='none'; document.getElementById('admin-panel-area').style.display='block'; renderAdmin(); } else renderAdminLogin(); }
 }
 
 function toast(msg, err) {
@@ -488,9 +751,10 @@ function renderInscription() {
     return;
   }
   list.innerHTML = teams.map(t => `
-    <div class="team-card" id="tc_${t.id}">
-      <div class="team-card-header">
-        <div>
+    <div class="team-card" id="tc_${t.id}" draggable="true" data-tid="${t.id}">
+      <div class="team-card-header" style="display:flex;align-items:center;gap:0;padding:10px 10px 10px 6px">
+        <div class="drag-handle" title="Glisser pour réorganiser">⠿</div>
+        <div style="flex:1">
           <div class="team-card-name">${esc(t.name)}</div>
           <div class="team-card-meta">${t.type} · ${t.gymnasts.length} gymnaste(s)</div>
         </div>
@@ -520,6 +784,23 @@ function renderInscription() {
       </div>
     </div>
   `).join('');
+  initDragDrop();
+}
+
+function initDragDrop() {
+  const list = document.getElementById('teams-list');
+  let dragSrc = null;
+  list.querySelectorAll('.team-card').forEach(card => {
+    card.addEventListener('dragstart', e => { dragSrc=card; setTimeout(()=>card.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; });
+    card.addEventListener('dragend', () => { card.classList.remove('dragging'); list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over')); dragSrc=null; });
+    card.addEventListener('dragover', e => { e.preventDefault(); if(card!==dragSrc){list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over'));card.classList.add('drag-over');} });
+    card.addEventListener('drop', e => { e.preventDefault(); if(dragSrc&&dragSrc!==card){const ids=[...list.querySelectorAll('.team-card')].map(c=>c.dataset.tid);const fi=ids.indexOf(dragSrc.dataset.tid);const ti=ids.indexOf(card.dataset.tid);const mv=teams.splice(fi,1)[0];teams.splice(ti,0,mv);save();renderInscription();} });
+    // Touch
+    const h=card.querySelector('.drag-handle'); if(!h) return;
+    h.addEventListener('touchstart',e=>{dragSrc=card;card.classList.add('dragging');},{passive:true});
+    h.addEventListener('touchmove',e=>{ e.preventDefault(); const y=e.touches[0].clientY; const els=[...list.querySelectorAll('.team-card:not(.dragging)')]; list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over')); const tgt=els.find(el=>{const r=el.getBoundingClientRect();return y>=r.top&&y<=r.bottom;}); if(tgt)tgt.classList.add('drag-over'); },{passive:false});
+    h.addEventListener('touchend',e=>{ card.classList.remove('dragging'); const tgt=list.querySelector('.team-card.drag-over'); list.querySelectorAll('.team-card').forEach(c=>c.classList.remove('drag-over')); if(tgt&&tgt!==dragSrc){const ids=[...list.querySelectorAll('.team-card')].map(c=>c.dataset.tid);const fi=ids.indexOf(dragSrc.dataset.tid);const ti=ids.indexOf(tgt.dataset.tid);const mv=teams.splice(fi,1)[0];teams.splice(ti,0,mv);save();renderInscription();} dragSrc=null; });
+  });
 }
 
 function gymRowHtml(tid, g) {
@@ -651,49 +932,29 @@ function renderGymnastList() {
   }
   list.innerHTML = filtered.map(g => {
     const fullName = [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)';
+    const discs = getDisciplines(g.teamType);
     const fc = filledCount(g.id, g.teamType);
     const complete = isComplete(g.id, g.teamType);
-    const discs = getDisciplines(g.teamType);
     const dots = discs.map((_,i) =>
       `<div class="dot ${complete?'full':i<fc?'on':''}"></div>`
     ).join('');
-
-    // inline note/faute
-    const noteVal   = getScore(g.id, '_note')  !== null ? getScore(g.id, '_note')  : '';
-    const fauteVal  = getScore(g.id, '_faute') !== null ? getScore(g.id, '_faute') : '';
-    const noteNum   = noteVal  !== '' ? parseFloat(noteVal)  : null;
-    const fauteNum  = fauteVal !== '' ? parseFloat(fauteVal) : null;
-    const finalVal  = (noteNum !== null && fauteNum !== null) ? Math.max(0, Math.round((noteNum - fauteNum)*10)/10) : null;
-
-    // build <option> lists
-    const noteOpts = ['',0,1,2,3,4,5,6,7,8,9,10].map(v =>
-      `<option value="${v}" ${String(noteVal)===String(v)?'selected':''}>${v===''?'–':v}</option>`
-    ).join('');
-    const fauteRange = [''];
-    for (let i=0; i<=40; i++) fauteRange.push(Math.round(i*10)/100);
-    const fauteOpts = fauteRange.map(v =>
-      `<option value="${v}" ${String(fauteVal)===String(v)?'selected':''}>${v===''?'–':v}</option>`
-    ).join('');
-
-    return `<div class="gymnast-item ${activeGymnast===g.id?'sel':''}" style="align-items:center">
-      <div style="flex:1;min-width:0;cursor:pointer" onclick="selectGymnast('${g.id}')">
+    // Compute total from _note/_faute keys
+    const total = discs.reduce((s,d) => {
+      const nd = getScore(g.id, d.key+'_note');
+      const fd = getScore(g.id, d.key+'_faute');
+      if (nd===null) return s;
+      return s + Math.max(0, Math.round((parseFloat(nd)-(fd?parseFloat(fd):0))*10)/10);
+    }, 0);
+    const hasAny = discs.some(d => getScore(g.id, d.key+'_note') !== null);
+    return `<div class="gymnast-item ${activeGymnast===g.id?'sel':''}" onclick="selectGymnast('${g.id}')">
+      <div style="flex:1;min-width:0">
         <div class="gym-name">${esc(fullName)}</div>
         <div class="gym-meta">${esc(g.teamName)} · ${g.annee||'?'}</div>
         <div class="dots">${dots}</div>
       </div>
-      <div class="gym-inline-cols">
-        <div class="inline-col">
-          <div class="inline-col-lbl">Note</div>
-          <select onchange="setInlineScore('${g.id}','_note',this.value)" onclick="event.stopPropagation()">${noteOpts}</select>
-        </div>
-        <div class="inline-col">
-          <div class="inline-col-lbl">Faute</div>
-          <select onchange="setInlineScore('${g.id}','_faute',this.value)" onclick="event.stopPropagation()">${fauteOpts}</select>
-        </div>
-        <div class="inline-col">
-          <div class="inline-col-lbl">= Note</div>
-          <div class="inline-col-result ${finalVal===null?'empty':''}">${finalVal !== null ? finalVal : '–'}</div>
-        </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="gym-score ${complete?'done':!hasAny?'empty':''}">${hasAny ? Math.round(total*10)/10 : '–'}</div>
+        <div class="score-lbl">${complete?'✓ Complet':fc+'/'+discs.length}</div>
       </div>
     </div>`;
   }).join('');
@@ -729,35 +990,63 @@ function renderNotationForm(gid) {
       <div class="group-badge">${esc(g.teamName)} · ${g.annee||'?'}</div>
     </div>`;
 
+  // Build note options 0-10
+  const noteOpts = (cur) => ['',0,1,2,3,4,5,6,7,8,9,10].map(v=>
+    `<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v===''?'–':v}</option>`).join('');
+  // Build faute options 0-4 by 0.1
+  const fauteRange = [''];
+  for(let i=0;i<=40;i++) fauteRange.push(Math.round(i*10)/100);
+  const fauteOpts = (cur) => fauteRange.map(v=>
+    `<option value="${v}" ${String(cur)===String(v)?'selected':''}>${v===''?'–':v}</option>`).join('');
+
   for (const [sec, items] of Object.entries(sections)) {
-    const secTotal = items.reduce((s,d) => s+(getScore(gid,d.key)||0), 0);
-    const secMax = items.reduce((s,d) => s+d.max, 0);
+    const secFinalTotal = items.reduce((s,d) => {
+      const nd = getScore(gid, d.key+'_note');
+      const fd = getScore(gid, d.key+'_faute');
+      if (nd===null) return s;
+      return s + Math.max(0, Math.round((nd-(fd||0))*10)/10);
+    }, 0);
     const icon = sectionIcons[sec]||'';
     html += `<div class="disc-block">
-      <div class="disc-title">${icon} ${sec}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="disc-title" style="margin-bottom:0">${icon} ${sec}</div>
+        <div style="display:flex;gap:6px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--text2);text-transform:uppercase;width:58px;text-align:center">Note départ</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--text2);text-transform:uppercase;width:58px;text-align:center">Faute</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:9px;color:var(--success);text-transform:uppercase;width:58px;text-align:center">= Note</div>
+        </div>
+      </div>
       ${items.map(d => {
-        const val = getScore(gid, d.key);
-        const display = val === null ? '–' : val;
-        const cls = val === d.max ? 'mx' : val === null ? 'em' : '';
+        const nv = getScore(gid, d.key+'_note');
+        const fv = getScore(gid, d.key+'_faute');
+        const nNum = nv !== null ? parseFloat(nv) : null;
+        const fNum = fv !== null ? parseFloat(fv) : null;
+        const tot = (nNum!==null) ? Math.max(0,Math.round((nNum-(fNum||0))*10)/10) : null;
         return `<div class="criteria-row">
           <div class="crit-label">${d.label}</div>
-          <div class="stepper">
-            <button class="step-btn" onclick="chScore('${gid}','${d.key}',-1)">−</button>
-            <div class="step-val ${cls}" id="sv_${gid}_${d.key}">${display}</div>
-            <button class="step-btn" onclick="chScore('${gid}','${d.key}',+1)">+</button>
+          <div class="crit-cols">
+            <select class="crit-select" onchange="setCritScore('${gid}','${d.key}','note',this.value)">${noteOpts(nv!==null?nv:'')}</select>
+            <select class="crit-select" onchange="setCritScore('${gid}','${d.key}','faute',this.value)">${fauteOpts(fv!==null?fv:'')}</select>
+            <div class="crit-total ${tot===null?'empty':''}" id="ct_${gid}_${d.key}">${tot!==null?tot:'–'}</div>
           </div>
         </div>`;
       }).join('')}
       <div class="subtotal-row">
         <div class="subtotal-lbl">Sous-total</div>
-        <div class="subtotal-val" id="st_${gid}_${sec.replace(/\W/g,'_')}">${secTotal} / ${secMax}</div>
+        <div class="subtotal-val" id="st_${gid}_${sec.replace(/\W/g,'_')}">${secFinalTotal}</div>
       </div>
     </div>`;
   }
 
+  const grandTotal = discs.reduce((s,d) => {
+    const nd = getScore(gid, d.key+'_note');
+    const fd = getScore(gid, d.key+'_faute');
+    if (nd===null) return s;
+    return s + Math.max(0, Math.round((nd-(fd||0))*10)/10);
+  }, 0);
   html += `<div class="grand-bar">
     <div class="grand-lbl">Total général</div>
-    <div class="grand-val" id="gt_${gid}">${getTotal(gid, g.teamType)}</div>
+    <div class="grand-val" id="gt_${gid}">${Math.round(grandTotal*10)/10}</div>
   </div>
   <button class="save-btn" onclick="saveGymnast('${gid}')">✔ Enregistrer</button>
   </div>`;
@@ -765,35 +1054,42 @@ function renderNotationForm(gid) {
   document.getElementById('notation-form-area').innerHTML = html;
 }
 
-function chScore(gid, key, delta) {
-  const g = allGymnasts().find(x => x.id === gid);
-  if (!g) return;
-  const d = getDisciplines(g.teamType).find(x => x.key === key);
-  let cur = getScore(gid, key);
-  if (cur === null) cur = 0; else cur = parseInt(cur)||0;
-  const nv = Math.max(0, Math.min(d.max, cur + delta));
-  setScore(gid, key, nv);
-
-  // update cell
-  const el = document.getElementById(`sv_${gid}_${key}`);
-  if (el) {
-    el.textContent = nv;
-    el.className = 'step-val' + (nv === d.max ? ' mx' : '');
+function setCritScore(gid, key, type, val) {
+  const storeKey = key + '_' + type;
+  if (val === '') {
+    if (scores[gymKey(gid)]) delete scores[gymKey(gid)][storeKey];
+  } else {
+    setScore(gid, storeKey, parseFloat(val));
   }
-  // update section subtotal
-  const discs = getDisciplines(g.teamType);
+  // Update this row's total
+  const nd = getScore(gid, key+'_note');
+  const fd = getScore(gid, key+'_faute');
+  const nNum = nd !== null ? parseFloat(nd) : null;
+  const fNum = fd !== null ? parseFloat(fd) : null;
+  const tot = nNum !== null ? Math.max(0, Math.round((nNum-(fNum||0))*10)/10) : null;
+  const ctEl = document.getElementById(`ct_${gid}_${key}`);
+  if (ctEl) { ctEl.textContent = tot !== null ? tot : '–'; ctEl.className = 'crit-total' + (tot===null?' empty':''); }
+  // Update section subtotal
+  const discs = getDisciplines(allGymnasts().find(x=>x.id===gid)?.teamType||'');
   const sections = {};
   for (const dd of discs) { if(!sections[dd.section]) sections[dd.section]=[]; sections[dd.section].push(dd); }
   for (const [sec, items] of Object.entries(sections)) {
     if (items.some(x => x.key === key)) {
-      const secTotal = items.reduce((s,dd) => s+(getScore(gid,dd.key)||0), 0);
-      const secMax = items.reduce((s,dd) => s+dd.max, 0);
+      const secTot = items.reduce((s,dd) => {
+        const n=getScore(gid,dd.key+'_note'); const f=getScore(gid,dd.key+'_faute');
+        if(n===null) return s; return s+Math.max(0,Math.round((parseFloat(n)-(f?parseFloat(f):0))*10)/10);
+      },0);
       const stEl = document.getElementById(`st_${gid}_${sec.replace(/\W/g,'_')}`);
-      if (stEl) stEl.textContent = `${secTotal} / ${secMax}`;
+      if (stEl) stEl.textContent = Math.round(secTot*10)/10;
     }
   }
+  // Update grand total
+  const grandTot = discs.reduce((s,dd) => {
+    const n=getScore(gid,dd.key+'_note'); const f=getScore(gid,dd.key+'_faute');
+    if(n===null) return s; return s+Math.max(0,Math.round((parseFloat(n)-(f?parseFloat(f):0))*10)/10);
+  },0);
   const gtEl = document.getElementById(`gt_${gid}`);
-  if (gtEl) gtEl.textContent = getTotal(gid, g.teamType);
+  if (gtEl) gtEl.textContent = Math.round(grandTot*10)/10;
 }
 
 function saveGymnast(gid) {
@@ -803,11 +1099,8 @@ function saveGymnast(gid) {
 }
 
 function setInlineScore(gid, key, val) {
-  if (val === '') {
-    if (scores[gymKey(gid)]) delete scores[gymKey(gid)][key];
-  } else {
-    setScore(gid, key, parseFloat(val));
-  }
+  if (val === '') { if (scores[gymKey(gid)]) delete scores[gymKey(gid)][key]; }
+  else { setScore(gid, key, parseFloat(val)); }
   save();
   renderGymnastList();
 }
@@ -1171,6 +1464,3 @@ renderInscription();
 </script>
 </body>
 </html>
-
-
-   
