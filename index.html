@@ -229,6 +229,16 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);min-
 .export-btn{background:var(--blue);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;cursor:pointer}
 .notif-wrap{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-top:14px}
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+
+/* INLINE SCORE COLUMNS */
+.gymnast-item{align-items:flex-start}
+.gym-inline-cols{display:flex;gap:6px;align-items:center;flex-shrink:0;margin-left:6px}
+.inline-col{display:flex;flex-direction:column;align-items:center;gap:3px}
+.inline-col-lbl{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap}
+.inline-col select{background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 4px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:16px;color:var(--blue);text-align:center;cursor:pointer;width:56px;-webkit-appearance:none;appearance:none;text-align-last:center}
+.inline-col select:focus{outline:none;border-color:var(--blue)}
+.inline-col-result{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:20px;color:var(--success);width:56px;text-align:center;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 4px;line-height:1.3}
+.inline-col-result.empty{color:var(--border)}
 </style>
 </head>
 <body>
@@ -630,21 +640,46 @@ function renderGymnastList() {
   list.innerHTML = filtered.map(g => {
     const fullName = [g.prenom, g.nom].filter(Boolean).join(' ') || '(Sans nom)';
     const fc = filledCount(g.id, g.teamType);
-    const total = fc > 0 ? getTotal(g.id, g.teamType) : null;
     const complete = isComplete(g.id, g.teamType);
     const discs = getDisciplines(g.teamType);
     const dots = discs.map((_,i) =>
       `<div class="dot ${complete?'full':i<fc?'on':''}"></div>`
     ).join('');
-    return `<div class="gymnast-item ${activeGymnast===g.id?'sel':''}" onclick="selectGymnast('${g.id}')">
-      <div style="flex:1;min-width:0">
+
+    // inline note/faute
+    const noteVal   = getScore(g.id, '_note')  !== null ? getScore(g.id, '_note')  : '';
+    const fauteVal  = getScore(g.id, '_faute') !== null ? getScore(g.id, '_faute') : '';
+    const noteNum   = noteVal  !== '' ? parseFloat(noteVal)  : null;
+    const fauteNum  = fauteVal !== '' ? parseFloat(fauteVal) : null;
+    const finalVal  = (noteNum !== null && fauteNum !== null) ? Math.max(0, Math.round((noteNum - fauteNum)*10)/10) : null;
+
+    // build <option> lists
+    const noteOpts = ['',0,1,2,3,4,5,6,7,8,9,10].map(v =>
+      `<option value="${v}" ${String(noteVal)===String(v)?'selected':''}>${v===''?'–':v}</option>`
+    ).join('');
+    const fauteOpts = ['',0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1].map(v =>
+      `<option value="${v}" ${String(fauteVal)===String(v)?'selected':''}>${v===''?'–':v}</option>`
+    ).join('');
+
+    return `<div class="gymnast-item ${activeGymnast===g.id?'sel':''}" style="align-items:center">
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="selectGymnast('${g.id}')">
         <div class="gym-name">${esc(fullName)}</div>
         <div class="gym-meta">${esc(g.teamName)} · ${g.annee||'?'}</div>
         <div class="dots">${dots}</div>
       </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div class="gym-score ${complete?'done':fc===0?'empty':''}">${total !== null ? total : '–'}</div>
-        <div class="score-lbl">${complete?'✓ Complet':fc+'/'+discs.length}</div>
+      <div class="gym-inline-cols">
+        <div class="inline-col">
+          <div class="inline-col-lbl">Note</div>
+          <select onchange="setInlineScore('${g.id}','_note',this.value)" onclick="event.stopPropagation()">${noteOpts}</select>
+        </div>
+        <div class="inline-col">
+          <div class="inline-col-lbl">Faute</div>
+          <select onchange="setInlineScore('${g.id}','_faute',this.value)" onclick="event.stopPropagation()">${fauteOpts}</select>
+        </div>
+        <div class="inline-col">
+          <div class="inline-col-lbl">= Note</div>
+          <div class="inline-col-result ${finalVal===null?'empty':''}">${finalVal !== null ? finalVal : '–'}</div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -750,6 +785,16 @@ function chScore(gid, key, delta) {
 function saveGymnast(gid) {
   save();
   toast('✓ Notes enregistrées !');
+  renderGymnastList();
+}
+
+function setInlineScore(gid, key, val) {
+  if (val === '') {
+    if (scores[gymKey(gid)]) delete scores[gymKey(gid)][key];
+  } else {
+    setScore(gid, key, parseFloat(val));
+  }
+  save();
   renderGymnastList();
 }
 
