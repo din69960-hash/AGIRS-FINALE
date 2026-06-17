@@ -41,9 +41,11 @@ onSnapshot(SCORES_DOC, (snap) => {
   window._scores = d;
   try {
     const active = document.querySelector('.page.active');
-    if (active && active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
-    if (active && active.id === 'page-resultats' && typeof renderResults === 'function') renderResults();
-    if (active && active.id === 'page-avancement' && typeof renderAvancement === 'function') renderAvancement();
+    if (!active) return;
+    if (active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
+    if (active.id === 'page-resultats' && typeof renderResults === 'function') renderResults();
+    if (active.id === 'page-avancement' && typeof renderAvancement === 'function') renderAvancement();
+    // Ne jamais toucher à la page inscription depuis ici
   } catch(e) {}
 });
 
@@ -52,7 +54,17 @@ onSnapshot(TEAMS_DOC, (snap) => {
   const d = JSON.parse(snap.data().data || '[]');
   if (JSON.stringify(d) === JSON.stringify(window._teams)) return;
   window._teams = d;
-  try { if (typeof renderInscription === 'function') renderInscription(); } catch(e) {}
+  try {
+    const active = document.querySelector('.page.active');
+    // Ne re-render que si on est déjà sur la page inscription ET qu'on ne saisit rien
+    if (active && active.id === 'page-inscription' && typeof renderInscription === 'function') {
+      // Vérifier qu'aucun champ n'est en cours de saisie
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+      renderInscription();
+    }
+    // Si on est sur notation, rafraîchir la liste des gymnastes (noms/équipes)
+    if (active && active.id === 'page-notation' && typeof renderGymnastList === 'function') renderGymnastList();
+  } catch(e) {}
 });
 
 // Load initial data then start app
@@ -1159,3 +1171,6 @@ renderInscription();
 </script>
 </body>
 </html>
+
+
+   
